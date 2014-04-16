@@ -65,6 +65,8 @@
 # Enjoy!
 import numpy as np
 import cv, cv2
+import socket, time, copy, yaml
+
 
 # CHANGE THIS TO BE YOUR TEAM'S cRIO IP ADDRESS!
 HOST, PORT = "10.2.54.2", 1180
