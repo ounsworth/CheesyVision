@@ -63,16 +63,15 @@
 #     different.
 #
 # Enjoy!
+import socket, time, copy, yaml
 import numpy as np
 import cv, cv2
-import socket, time, copy, yaml
+import Tkinter
+from Tkinter import *
 
 
 # CHANGE THIS TO BE YOUR TEAM'S cRIO IP ADDRESS!
 HOST, PORT = "10.2.54.2", 1180
-
-# Name of displayed window
-WINDOW_NAME = "Visual Joystick"
 
 # Width of the entire widget
 WIDTH_PX = 1000
@@ -103,34 +102,15 @@ maxS = 255
 minV = 40
 maxV = 255
 minSize = 0.001
-def detect_joystick( img ) :
-	# convert image to HSV space and threshold it
-	#hsv = cv.CreateImage(cv.GetSize(img), img.depth, 3);
-	hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+def set_cRIO_IP( teamNo ) :
+	global HOST
 	
-	mask = cv.fromarray( cv2.inRange( hsv, cv.Scalar(joystick_minH, minS, minV), cv.Scalar(joystick_maxH, maxS, maxV) ) )
-	
-	cv.Smooth( mask, mask, cv.CV_MEDIAN, 2*joystick_noiseFilterSize+1);
-	
-	cv2.imshow("Calibrate Joystick", np.array(mask) )
-	
-	w,h = cv.GetSize(mask)
-	ys = np.array( range( h ) )
-	ys = np.tile( np.array( range(h) ), ( w, 1) ).transpose()
-	
-	xs = np.array( range( w ) )
-	xs = np.tile( np.array( range(w) ), ( h, 1) )
-	
-	npMask = np.array(mask).astype(float) / 255
-	
-	sum = np.sum(npMask)
-	if (sum / (w*h) < minSize) :
-		return -1, -1
+	if( len(teamNo) <= 2) :
+		HOST = "10.0."+str(teamNo)+".2"
+	else :
+		HOST = "10."+str( teamNo[:2] )+"."+teamNo[2:]+".2"
 		
-	meanX = int( np.sum( xs * npMask ) / sum )
-	meanY = int( np.sum( ys * npMask ) / sum )
-	
-	return meanX, meanY
 	
 def detect( img, minH, maxH, noiseFilterSize, windowName ) :
 	# convert image to HSV space and threshold it
@@ -161,10 +141,11 @@ def detect( img, minH, maxH, noiseFilterSize, windowName ) :
 	
 	return meanX, meanY
 	
-def writeParams( args) :
+def writeParams( args ) :
 	'''Save the parameters to YAML file so they persist between runs. This is icing if I have time / energy'''
 	global joystick_minH, joystick_maxH, joystick_noiseFilterSize
 	global button_minH, button_maxH, button_noiseFilterSize
+	global teamNo
 	
 	joystick_minH = cv2.getTrackbarPos("joystick_minH", "Calibrate Joystick")
 	joystick_maxH = cv2.getTrackbarPos("joystick_maxH", "Calibrate Joystick")
@@ -182,6 +163,7 @@ def writeParams( args) :
 	params["button_minH"] = button_minH
 	params["button_maxH"] = button_maxH
 	params["button_noiseFilterSize"] = button_noiseFilterSize
+	params['teamNo'] = teamNo
 	
 	# convert this to YAML format
 	YAMLstr = yaml.dump( params )
@@ -194,6 +176,11 @@ def writeParams( args) :
 def readParams() :
 	global joystick_minH, joystick_maxH, joystick_noiseFilterSize
 	global button_minH, button_maxH, button_noiseFilterSize
+	global teamNo
+	
+	joystick_minH = joystick_maxH = joystick_noiseFilterSize = 0
+	button_minH = button_maxH = button_noiseFilterSize = 0
+	teamNo = ''
 	
 	try :
 		file = open(paramsFile, 'r')
@@ -207,6 +194,8 @@ def readParams() :
 	# convert the raw text into a dictionary
 	params = yaml.load( input )
 	
+	#print( params )
+	
 	# extract the individual variables
 	try :
 		joystick_minH = params["joystick_minH"]
@@ -215,6 +204,7 @@ def readParams() :
 		button_minH = params["button_minH"]
 		button_maxH = params["button_maxH"]
 		button_noiseFilterSize = params["button_noiseFilterSize"]
+		teamNo = params['teamNo']
 	except KeyError as e :
 		# the file was corrupt, go with the default values
 		print("File Corrupt")
@@ -223,37 +213,38 @@ def readParams() :
 joyColour = (0, 255, 0)
 btnColour = (255, 0, 0)
 alpha = 0.6 # for the smoothing to reduce jitter
-def main():
+def run( ) :
 	global joystick_minH, joystick_maxH, joystick_noiseFilterSize
 	global button_minH, button_maxH, button_noiseFilterSize
-	cv.NamedWindow(WINDOW_NAME, 1)
-    
-    # TODO : team number entry box
-    
-	joystick_minH = joystick_maxH = joystick_noiseFilterSize = 0
-	button_minH = button_maxH = button_noiseFilterSize = 0
+	global teamNo
+	global top, teamNoEntry, WINDOW_NAME
+	
 	readParams()
 	
+	# deal with the GUI stuff from teh last window
+	teamNo = teamNoEntry.get()
+	if( len(teamNo) == 0 or len(teamNo) > 4) : teamNo = '0000'
+	set_cRIO_IP( teamNo )
+	top.destroy()
+		
 	cv.NamedWindow("Calibrate Joystick", 1)
 	cv.CreateTrackbar( "joystick_minH", "Calibrate Joystick", joystick_minH, 255, writeParams)
 	cv.CreateTrackbar( "joystick_maxH", "Calibrate Joystick", joystick_maxH, 255, writeParams)
 	cv.CreateTrackbar( "joystick size of noise filter", "Calibrate Joystick", joystick_noiseFilterSize, 25, writeParams)
-	#cv.WaitKey(5);
     
 	cv.NamedWindow("Calibrate Button", 1)
 	cv.CreateTrackbar( "button_minH", "Calibrate Button", button_minH, 255, writeParams)
 	cv.CreateTrackbar( "button_maxH", "Calibrate Button", button_maxH, 255, writeParams)
 	cv.CreateTrackbar( "button size of noise filter", "Calibrate Button", button_noiseFilterSize, 25, writeParams)
 	cv.WaitKey(5);
+	
+	WINDOW_NAME = "Visual Joystick for Team "+teamNo
+	cv.NamedWindow(WINDOW_NAME, 1)
+	
+	writeParams( 0 )
 
 	# Open the webcam (should be the only video capture device present).
 	capture = cv2.VideoCapture(0)
-
-	# Manually set the exposure, because a lot of webcam drivers will overexpose
-	# the image and lead to poor separation between foreground and background.
-	#exposure = -4
-	#last_exposure = exposure
-	#capture.set(15, exposure)  # 15 is the enum value for CV_CAP_PROP_EXPOSURE
 
 	# Keep track of time so that we can provide the cRIO with a relatively constant
 	# flow of data.
@@ -267,7 +258,8 @@ def main():
 	while 1:
 		# Get a new frame.
 		_, img = capture.read()
-
+		height, width, _ = img.shape
+		
 		# Flip it and shrink it.
 		img = cv2.flip(cv2.resize(img, (WEBCAM_WIDTH_PX, WEBCAM_HEIGHT_PX)), 1)
 
@@ -284,6 +276,7 @@ def main():
 			cv2.circle( img, (joyX, joyY), 15, joyColour, thickness=-1 )
 		
 		overlayFile = 'axes.png'
+		btnPressed = 0
 		if (btnX != -1 and btnY != -1) :
 			btnX = int( alpha*btnX + (1-alpha)*oldBtnX )
 			btnY = int( alpha*btnY + (1-alpha)*oldBtnY )
@@ -334,39 +327,56 @@ def main():
 		cv2.imshow(WINDOW_NAME, img)
 		
 		
-		
 		# TODO: send axes and buttons to cRIO
 
 		# Throttle the output
-		#cur_time = get_time_millis()
-		#if last_t + PERIOD <= cur_time:
-			## Try to connect to the robot on open or disconnect
-			#if not connected:
-				#try:
-					## Open a socket with the cRIO so that we can send the state of the hot goal.
-					#s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		cur_time = get_time_millis()
+		if (last_t + PERIOD <= cur_time):
+			# Try to connect to the robot on open or disconnect
+			if not connected:
+				try:
+					# Open a socket with the cRIO so that we can send the state of the hot goal.
+					s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-					## This is a pretty aggressive timeout...we want to reconnect automatically
-					## if we are disconnected.
-					#s.settimeout(.1)
-					#s.connect((HOST, PORT))
-				#except:
-					#print "failed to reconnect"
-					#last_t = cur_time + 1000
-			#try:
-				## Send one byte to the cRIO:
-				## 0x01: Right on
-				## 0x02: Left on
-				## 0x03: Both on
-				#write_bytes = bytearray()
-				#v = (left_on << 1) | (right_on << 0)
-				#write_bytes.append(v)
-				#s.send(write_bytes)
-				#last_t = cur_time
-				#connected = True
-			#except:
+					# This is a pretty aggressive timeout...we want to reconnect automatically
+					# if we are disconnected.
+					s.settimeout(.1)
+					s.connect((HOST, PORT))
+				except:
+					print "failed to reconnect"
+					last_t = cur_time + 1000
+			try:
+				# data format:
+				# "Xaxis,Yaxis,btn1,btn2,btn3,btn4"
+				# so a typical message will look like:
+				# TODO
+				
+				# the target-not-found condition:
+				if( joyX < 0 or joyY < 0) :
+					msg = "-100,-100"
+				else :
+					Xaxis = 2*( float(joyX) / width) - 1
+					Yaxis = 1 - 2*( float(joyY) / height)
+					msg = str(Xaxis)+","+str(Yaxis)
+					
+				if( btnPressed == 0 ) :
+					msg = msg+",0,0,0,0"
+				elif( btnPressed == 1 ) :
+					msg = msg+",1,0,0,0"
+				elif( btnPressed == 2 ) :
+					msg = msg+",0,1,0,0"
+				elif( btnPressed == 3 ) :
+					msg = msg+",0,0,1,0"
+				elif( btnPressed == 4 ) :
+					msg = msg+",0,0,0,1"
+					
+				#print( msg )
+				s.send(msg)
+				last_t = cur_time
+				connected = True
+			except:
 				#print "Could not send data to robot"
-				#connected = False
+				connected = False
 
 
 		# Capture a keypress.
@@ -376,7 +386,34 @@ def main():
 		if key == 27:
 			break
 
-	s.close()
+	#s.close()
+	exit()
+
+def main():
+	global top, teamNoEntry
+	global teamNo
+	
+	readParams()
+	
+	top = Tk()
+    
+	top.title("FRC Visual Joystick")
+	top.resizable(0, 0)
+	top.geometry(("%dx%d")%(250,100))
+	top.protocol("WM_DELETE_WINDOW", exit)
+
+	instructLbl = Label(top, text="Team No.")
+	instructLbl.grid(row=0, sticky=N+E+W+S)
+
+	teamNoEntry = Entry(top, width=6)
+	teamNoEntry.insert(0, teamNo)
+	teamNoEntry.grid(row=1, sticky=N+E+W+S)
+
+	updateBtn = Button(top, text="Go!", command=run)
+	updateBtn.grid(row=2, sticky=N+S)
+
+	top.mainloop()
+    
 
 if __name__ == '__main__':
     main()
